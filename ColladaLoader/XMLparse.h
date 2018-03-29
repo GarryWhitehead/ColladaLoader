@@ -25,14 +25,24 @@ public:
 	~XMLparse();
 
 	void LoadXMLDocument(std::string filename);
-	void FindNode(std::string node);
-	XMLPbuffer ReadNodeIntoBuffer(std::string node);
-	uint32_t FindNodeInBuffer(std::string node, XMLPbuffer& buffer, uint32_t index);
-	std::string ReadChildNodeData(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
-	int ReadChildNodeDataInt(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
-	uint32_t ReadChildFloatArray(XMLPbuffer& buffer, std::vector<float>& dstBuffer, uint32_t index, uint32_t arrayCount);
-	uint32_t ReadChildFloatVec3Array(XMLPbuffer& buffer, std::vector<glm::vec3>& dstBuffer, uint32_t index, uint32_t arrayCount);
-	uint32_t ReadChildFloat4x4Array(XMLPbuffer& buffer, std::vector<glm::mat4>& dstBuffer, uint32_t index, uint32_t arrayCount);
+	void FindElement(std::string node);
+	XMLPbuffer ReadTreeIntoBuffer(std::string node);
+	uint32_t FindElementInBuffer(std::string node, XMLPbuffer& buffer, uint32_t index);
+	bool CheckElement(std::string id, XMLPbuffer& buffer, uint32_t index);
+
+	std::string ReadElementDataString(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
+	int ReadElementDataInt(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
+	float ReadElementDataFloat(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
+	glm::mat4 ReadElementDataMatrix(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
+
+	template <typename T>
+	T ReadElementDataVec(std::string nodeName, XMLPbuffer& buffer, uint32_t index);
+
+	uint32_t ReadElementArrayVec3(XMLPbuffer& buffer, std::vector<glm::vec3>& dstBuffer, uint32_t index, uint32_t arrayCount);
+	uint32_t ReadElementArrayMatrix(XMLPbuffer& buffer, std::vector<glm::mat4>& dstBuffer, uint32_t index, uint32_t arrayCount);
+	
+	template <typename T>
+	uint32_t ReadElementArray(XMLPbuffer& buffer, std::vector<T>& dstBuffer, uint32_t index, uint32_t arrayCount);
 	
 
 	// helper functions
@@ -45,4 +55,81 @@ private:
 	// error flags that can be accessed by the user
 	ErrorFlags m_errorFlags;
 };
+
+template <typename T>
+T XMLparse::ReadElementDataVec(std::string nodeName, XMLPbuffer& buffer, uint32_t index)
+{
+	std::string startNode = '<' + nodeName + '>';
+
+	std::string str = buffer[index];
+
+	if (str.empty()) {
+		m_errorFlags = ErrorFlags::XMLP_NO_DATA_IN_SPECIFIED_NODE;
+		return T(0.0);
+	}
+
+	size_t pos = str.find(startNode);
+	if (pos == std::string::npos) {
+		m_errorFlags = ErrorFlags::XMLP_INCORRECT_NODE_FORMAT;
+		return T(0.0f);
+	}
+
+	pos = str.find_first_of('>');
+	str = str.substr(pos + 1, str.size());
+
+	std::stringstream ss(str);
+	T vec;
+	uint32_t vecIndex = 0;
+
+	while (ss >> vec[vecIndex]) {
+
+		++vecIndex;
+
+		char next = ss.peek();
+		if (next == '<') {
+			break;
+		}
+	}
+
+	return vec;
+}
+
+template <typename T>
+uint32_t XMLparse::ReadElementArray(XMLPbuffer& buffer, std::vector<T>& dstBuffer, uint32_t index, uint32_t arrayCount)
+{
+	uint32_t arrayIndex = index;
+
+	// start by removing array data from first line
+	std::string str = buffer[arrayIndex];
+
+	size_t pos = str.find_first_of(">");
+	if (pos == std::string::npos) {
+		m_errorFlags = ErrorFlags::XMLP_INCORRECT_NODE_FORMAT;
+		return index;
+	}
+	std::string floatArray = str.substr(pos + 1, str.size());
+
+	uint32_t count = 0;
+	T value;
+
+	while (arrayIndex < buffer.size()) {
+
+		std::stringstream ss(floatArray);
+		while (ss >> value) {
+
+			dstBuffer.push_back(value);
+			++count;
+			if (count == arrayCount) {
+
+				return arrayIndex + 1;
+			}
+		}
+		++arrayIndex;
+		floatArray = buffer[arrayIndex];
+	}
+
+	// if we arrived here, the there's a problem with the file formatting
+	m_errorFlags = ErrorFlags::XMLP_INCORRECT_FILE_FORMAT;
+	return arrayIndex;
+}
 
